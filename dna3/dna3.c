@@ -56,7 +56,7 @@ void free_all();
 
 int main()
 {
-	clock_t begin_0 = clock();
+	// clock_t begin_0 = clock();
 
     map_files();
     alloc_string_map();
@@ -123,9 +123,9 @@ int main()
 
 	free_all();
 
-	clock_t end = clock();
+	// clock_t end = clock();
 	// printf("Total internal time = %f\n", (double)(end - begin_0) / CLOCKS_PER_SEC);
-	printf("Total time = %f\n", ((double)(end - begin_0) / CLOCKS_PER_SEC)/num_threads);
+	// printf("Total time = %f\n", ((double)(end - begin_0) / CLOCKS_PER_SEC)/num_threads);
 
 	return EXIT_SUCCESS;
 }
