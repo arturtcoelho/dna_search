@@ -14,6 +14,7 @@ Média = 28.19885 segundos (real)
 Uso de memória aproximado: 1.376 GB
 
  - dna2.c cruamente paralelizado NÃO ordenado, ou seja, resultados corretos porem sem sincronia
+ - Teste com 4 threads
 7.974, 7.942, 7.997, 7.963, 7.987, 7.998, 7.968, 7.963, 7.983, 8.007, 8.017, 7.963, 7.977, 7.972, 7.985, 7.977, 7.983, 8.020, 7.931, 7.962
-Média = 7.97845 (real)
+Média = 7.97845 (real) (x4 = 31.9138 = 0.883594244% do speedup teorico)
 Uso de memória aproximado (compartilhado entre threads): 1.376 GB
