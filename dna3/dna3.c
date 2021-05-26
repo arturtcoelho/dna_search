@@ -25,6 +25,8 @@
 #define DNA_SIZE 100000
 #define MAX_SECTORS 100
 
+#define OUT_MAP_MULTIPLIER 2.1
+
 // File maps and lengths
 // these files are maped using mmap, and can be accessed as strings
 // The lengths are obtained with the file descriptor
@@ -38,7 +40,7 @@ char **query_map, **dna_map, **dna_remap;
 long query_map_s, dna_map_s, num_sectors;
 
 // 
-long *output_map;
+char **output_map;
 long out_map_s;
 
 void alloc_string_map();
@@ -64,7 +66,8 @@ int main()
 	// printf("time reading and allocating memory = %f\n", (double)(end - begin) / CLOCKS_PER_SEC);
 
 	int num_threads;
-	
+    fout_s = 0;
+    
 	#pragma omp parallel
 	{
 		int id = omp_get_thread_num();
@@ -75,11 +78,13 @@ int main()
 
 		long chunk = query_map_s / num_threads;
 		long init_for = id*chunk;
-		long end_for = (id+1)*chunk-1;
-		long line_number = init_for*2;
+		long end_for = (id+1)*chunk;
+		long line_number = init_for*OUT_MAP_MULTIPLIER;
+        long total_writen = 0;
 
 		// for each query in block
 		for (long i = init_for; i < end_for; i++) {
+            total_writen += sprintf(output_map[line_number++], ">Query string #%ld\n", i);
 			int found = 0;
 
 			// for each database sector
@@ -90,35 +95,30 @@ int main()
 
 				// if found store the value on output array
 				if (result > 0) {
-					output_map[line_number] = i; // number of query found
-					output_map[line_number+1] = j; // number of sector
-					output_map[line_number+2] = result; // where in sector
-					line_number+=3;
+                    total_writen += sprintf(output_map[line_number], "> Escherichia coli K-12 MG1655 section %ld of 400 of the complete genome\n%d\n", j+1, result);
+                    line_number+=2;
 					found++;
 				}
 			}
-			line_number++;
+            if (!found) {
+                total_writen += sprintf(output_map[line_number++], "NOT FOUND\n");
+            }
 		}
+
+        #pragma omp critical
+        {
+            fout_s += total_writen;
+        }
+
 	}
 
 	map_output();
 
-	for (long i = 0, len = 0, q = 0; i < out_map_s-1; i++, q++){
-		int last_i = i;
-		len += sprintf(fout+len, ">Query string #%ld\n", q);
-		if (!output_map[i]) {
-			len += sprintf(fout+len, "NOT FOUND\n");
-		} else {
-			do {
-				len+=sprintf(fout+len, "> Escherichia coli K-12 MG1655 section %ld of 400 of the complete genome\n", output_map[i+1]+1);
-				len+=sprintf(fout+len, "%ld\n", output_map[i+2]);
-				i+=3;
-			} while(output_map[i] && i < out_map_s);
-		}
-		for (long j = last_i+1, k = 0; j < i/2; j++, k++) {
-			len += sprintf(fout+len, ">Query string #%ld\n", last_i+k);
-			len += sprintf(fout+len, "NOT FOUND\n");
-		}
+	for (long i = 0, len = 0; i < out_map_s-1; i++){
+        if (output_map[i][0]) {
+            len += sprintf(fout+len, "%s", output_map[i]);
+            // printf("%s", output_map[i]);
+        }
 	}
 
 	free_all();
@@ -208,10 +208,16 @@ void map_strings()
 	}
 
     query_map_s = map_index;
-	out_map_s = (query_map_s+1)*3;
+	out_map_s = (query_map_s)*OUT_MAP_MULTIPLIER; // heuristic of how many found objects
 
-	output_map = calloc(out_map_s, sizeof(long)); // init with zeroes
+	output_map = malloc(out_map_s * sizeof(char*));
 	if (!output_map) exit(EXIT_FAILURE);
+	for (long i = 0; i < out_map_s-1; i++) {
+		output_map[i] = malloc(DESC_LINE_SIZE * sizeof(char));
+		if (!output_map[i]) exit(EXIT_FAILURE);
+        output_map[i][0] = '\0';
+	}
+	
 }
 
 void map_output()
@@ -314,7 +320,6 @@ void map_files()
     status = fstat (fd, & s);
     check (status < 0, "stat %s failed: %s", file_name, strerror (errno));
     query_s = s.st_size;
-    fout_s = query_s/30; // Heuristic
 
     /* Memory-map the file. */
     query = mmap (0, query_s, PROT_READ, MAP_PRIVATE, fd, 0);
