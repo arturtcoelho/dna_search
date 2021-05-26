@@ -6,9 +6,14 @@ Máquina:
 
  - dna.c original com modificações mínimas
 44.089, 44.372, 43.761, 44.011, 43.845, 47.088, 44.586, 44.314, 43.727, 44.020, 45.162, 43.658, 43.625, 47.122, 44.160, 47.074, 44.549, 44.632, 45.017, 43.938
-Média = 44.6375 segundos
+Média = 44.6375 segundos (real)
 
  - dna2.c modificações na leitura de arquivos, utilizando mapeamento de memória
 27.771, 27.913, 27.799, 27.626, 27.725, 27.770, 28.185, 30.299, 30.994, 27.839, 27.887, 28.016, 27.914, 28.083, 28.186, 28.095, 28.094, 27.958, 27.866, 27.957
-Média = 28.19885 segundos
+Média = 28.19885 segundos (real)
 Uso de memória aproximado: 1.376 GB
+
+ - dna2.c cruamente paralelizado NÃO ordenado, ou seja, resultados corretos porem sem sincronia
+7.974, 7.942, 7.997, 7.963, 7.987, 7.998, 7.968, 7.963, 7.983, 8.007, 8.017, 7.963, 7.977, 7.972, 7.985, 7.977, 7.983, 8.020, 7.931, 7.962
+Média = 7.97845 (real)
+Uso de memória aproximado (compartilhado entre threads): 1.376 GB
