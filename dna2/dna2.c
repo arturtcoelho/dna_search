@@ -4,7 +4,9 @@
 #include <time.h>
 
 #include <sys/stat.h>
+#include <sys/mman.h>
 #include <fcntl.h>
+#include <unistd.h>
 #include <sys/mman.h> 
 
 #include <errno.h>
@@ -15,107 +17,142 @@
 #define QUERY_LINE_SIZE 1000
 #define DESC_LINE_SIZE 100
 
-// Global files
-FILE *fdatabase, *fquery, *fout;
+#define MAX_QUERY 200000
+#define MAX_DNA 100000
+#define QUERY_SIZE 100000
+#define DNA_SIZE 100000
+#define MAX_SECTORS 100
+
+FILE *fout;
 char *dna, *query;
 long dna_s, query_s;
+char **query_map, **dna_map;
+long query_map_s, dna_map_s;
+char **dna_remap;
+int num_sectors;
 
-// Global arrays of bases 
-char *bases, *str;
-
+void alloc_string_map();
 void check (int test, const char * message, ...);
-void map_files();
 void openfiles();
+void map_files();
+void map_strings();
 int bmhs(char *string, int n, char *substr, int m);
 void closefiles();
-void remove_eol(char *line);
-void alloc_arrays();
+void remove_eol(char *line, int len);
+void free_all();
 
 int main()
 {
-
-	alloc_arrays();
+    map_files();
+    alloc_string_map();
+    map_strings();
 	openfiles();
-	map_files();
 
-	char desc_dna[DESC_LINE_SIZE], desc_query[DESC_LINE_SIZE];
-	char line[QUERY_LINE_SIZE];
-	int i, found, result;
+	int found = 0;
+	int result;
 
-	// double time_spent0 = 0;
-	double time_spent1 = 0;
-	clock_t begin, end;
-	
-	fgets(desc_query, DESC_LINE_SIZE, fquery);
-	remove_eol(desc_query);
-
-	printf("%ld\n", dna_s);
-	printf("%ld\n", query_s);
-
-	while (!feof(fquery)) {
-		fprintf(fout, "%s\n", desc_query);
+	for (long i = 0; i < query_map_s; i++) {
+		fprintf(fout, ">Query string #%ld\n", i);
 		
-		// read query string
-		fgets(line, QUERY_LINE_SIZE, fquery);
-		remove_eol(line);
-		str[0] = 0;
-		i = 0;
-		do {
-			strcat(str + i, line);
-			if (!fgets(line, QUERY_LINE_SIZE, fquery))
-				break;
-			remove_eol(line);
-			i += QUERY_LINE_SIZE-1;
-		} while (line[0] != '>');
-		strcpy(desc_query, line);
-
 		// read database and search
 		found = 0;
-		fseek(fdatabase, 0, SEEK_SET);
-		fgets(line, DESC_LINE_SIZE, fdatabase);
-		remove_eol(line);
-		while (!feof(fdatabase)) {
-			// read dna section
-			begin = clock();
-			
-			strcpy(desc_dna, line);
-			bases[0] = 0;
-			i = 0;
-			fgets(line, 100, fdatabase);
-			remove_eol(line);
-			do {
-				strcat(bases + i, line);
-				if (!fgets(line, 100, fdatabase))
-					break;
-				remove_eol(line);
-				i += 80;
-			} while (line[0] != '>');
+		for (long j = 0; j < num_sectors; j++){
 
-			end = clock();
-			time_spent1 += (double)(end - begin) / CLOCKS_PER_SEC;
-
-			// search with str in bases
-
-			result = bmhs(bases, strlen(bases), str, strlen(str));
+			result = bmhs(dna_remap[j], strlen(dna_remap[j]), query_map[i], strlen(query_map[i]));
 			if (result > 0) {
-				fprintf(fout, "%s\n%d\n", desc_dna, result);
+				fprintf(fout, "> Escherichia coli K-12 MG1655 section %ld of 400 of the complete genome\n%d\n", j+1, result);
 				found++;
 			}
 		}
 
 		if (!found)
 			fprintf(fout, "NOT FOUND\n");
-
 	}
 
 	closefiles();
-	free(str);
-	free(bases);
-
-	// printf("time 0 = %f\n", time_spent0);
-	printf("time 1 = %f\n", time_spent1);
+	free_all();
 
 	return EXIT_SUCCESS;
+}
+
+void alloc_string_map()
+{
+    dna_map = malloc(MAX_DNA*sizeof(char*));
+    query_map = malloc(MAX_QUERY*sizeof(char*));
+
+	if (!dna_map || !query_map) exit(EXIT_FAILURE);
+
+    for (int i = 0; i < MAX_DNA; i++) {
+        dna_map[i] = malloc(DNA_SIZE);
+		if (!dna_map[i]) exit(EXIT_FAILURE);
+    }
+    for (int i = 0; i < MAX_QUERY; i++) {
+        query_map[i] = malloc(QUERY_SIZE);
+		if (!query_map[i]) exit(EXIT_FAILURE);
+    }
+
+}
+
+void map_strings()
+{
+	long map_index = 0;
+	int last_pos = 0;
+
+    int sectors[MAX_SECTORS];
+    num_sectors = 0;
+
+	for (long i = 0; i < dna_s; i++){
+		if (dna[i] == '\n') {
+            if (*(dna+last_pos) == '>' || *(dna+last_pos+1) == '>') {
+                last_pos = i;
+                sectors[num_sectors++] = map_index;
+                continue;
+            }
+            int len = i-last_pos;
+			memcpy(*(&dna_map[map_index]), dna+last_pos+1, len);
+            remove_eol(dna_map[map_index], len);
+            map_index++;
+            last_pos = i;
+		}
+	}
+    
+    dna_map_s = map_index;
+
+    dna_remap = malloc((num_sectors+1) * sizeof(char*));
+	if (!dna_remap) exit(EXIT_FAILURE);
+    for (int i = 0; i < num_sectors; i++){
+        dna_remap[i] = malloc(DNA_SIZE * sizeof(char));
+		if (!dna_remap[i]) exit(EXIT_FAILURE);
+    }
+    sectors[num_sectors] = dna_map_s;
+    
+    for (int i = 0; i < num_sectors; i++){
+        int k = 0;
+        for (int j = sectors[i]; j < sectors[i+1]; j++) {
+            int len = strlen(dna_map[j]);   
+            memcpy(dna_remap[i]+k, dna_map[j], len);
+            k += len;
+        }        
+    }
+
+    map_index = 0;
+	last_pos = 0;
+
+    for (long i = 0; i < query_s; i++){
+		if (query[i] == '\n') {
+            if (*(query+last_pos) == '>' || *(query+last_pos+1) == '>') {
+                last_pos = i;
+                continue;
+            }
+            int len = i-last_pos;
+			memcpy(query_map[map_index], query+last_pos+1, len);
+            remove_eol(query_map[map_index], len);
+            map_index++;
+			last_pos = i;
+		}
+	}
+
+    query_map_s = map_index;
 }
 
 void check (int test, const char * message, ...)
@@ -153,6 +190,8 @@ void map_files()
     dna = mmap (0, dna_s, PROT_READ, MAP_PRIVATE, fd, 0);
     check (dna == MAP_FAILED, "mmap %s failed: %s", file_name, strerror (errno));
 
+	close (fd);
+
     file_name = "query.in";
 
     fd = open (file_name, O_RDONLY);
@@ -166,6 +205,8 @@ void map_files()
     /* Memory-map the file. */
     query = mmap (0, query_s, PROT_READ, MAP_PRIVATE, fd, 0);
     check (query == MAP_FAILED, "mmap %s failed: %s", file_name, strerror (errno));
+
+	close (fd);
 }
 
 // Boyers-Moore-Hospool-Sunday algorithm for string matching
@@ -197,61 +238,39 @@ int bmhs(char *string, int n, char *substr, int m) {
 	return -1;
 }
 
-void openfiles() 
+void remove_eol(char *line, int len) 
 {
-
-	fdatabase = fopen("dna.in", "r+");
-	if (fdatabase == NULL) {
-		perror("dna.in");
-		exit(EXIT_FAILURE);
-	}
-
-	fquery = fopen("query.in", "r");
-	if (fquery == NULL) {
-		perror("query.in");
-		exit(EXIT_FAILURE);
-	}
-
-	fout = fopen("dna.out", "w");
-	if (fout == NULL) {
-		perror("fout");
-		exit(EXIT_FAILURE);
-	}
-
-}
-
-void closefiles() 
-{
-	fflush(fdatabase);
-	fclose(fdatabase);
-
-	fflush(fquery);
-	fclose(fquery);
-
-	fflush(fout);
-	fclose(fout);
-}
-
-void remove_eol(char *line) 
-{
-	int i = strlen(line) - 1;
+	int i = len - 1;
 	while (line[i] == '\n' || line[i] == '\r') {
 		line[i] = 0;
 		i--;
 	}
 }
 
-void alloc_arrays()
+void openfiles() 
 {
-	bases = malloc(sizeof(char) * 1000001);
-	if (bases == NULL) {
-		perror("malloc");
+	fout = fopen("dna.out", "w");
+	if (fout == NULL) {
+		perror("fout");
 		exit(EXIT_FAILURE);
 	}
+}
 
-	str = malloc(sizeof(char) * 1000001);
-	if (str == NULL) {
-		perror("malloc str");
-		exit(EXIT_FAILURE);
-	}
+
+void closefiles() 
+{
+	fflush(fout);
+	fclose(fout);
+}
+
+void free_all()
+{
+	munmap(dna, dna_s);
+	munmap(query, query_s);
+	for (long i = 0; i < query_map_s; i++) free(query_map[i]);
+	for (long i = 0; i < dna_map_s; i++) free(dna_map[i]);
+	free(query_map);
+	free(dna_map);
+	for (long i = 0; i < num_sectors; i++) free(dna_remap[i]);
+	free(dna_remap);	
 }
