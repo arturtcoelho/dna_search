@@ -46,30 +46,20 @@ void free_all();
 int main()
 {
 	clock_t begin = clock();
-	clock_t begin_0 = clock();
+
     map_files();
     alloc_string_map();
     map_strings();
 	openfiles();
-	clock_t end = clock();
-	printf("time reading and allocating memory = %f\n", (double)(end - begin) / CLOCKS_PER_SEC);
-	double total = 0;
-	int num_threads;
 
-	#pragma omp parallel for
 	for (long i = 0; i < query_map_s; i++) {
 		fprintf(fout, ">Query string #%ld\n", i);
-		int id = omp_get_thread_num();
-		if (!id) num_threads = omp_get_num_threads();
 		
 		// read database and search
 		int found = 0;
 		for (long j = 0; j < num_sectors; j++){
 
-			begin = clock();
 			int result = bmhs(dna_remap[j], strlen(dna_remap[j]), query_map[i], strlen(query_map[i]));
-			end = clock();
-			total += (double)(end - begin) / CLOCKS_PER_SEC;
 			
 			if (result > 0) {
 				fprintf(fout, "> Escherichia coli K-12 MG1655 section %ld of 400 of the complete genome\n%d\n", j+1, result);
@@ -81,16 +71,11 @@ int main()
 			fprintf(fout, "NOT FOUND\n");
 	}
 
-	printf("num threads = %d\n", num_threads);
-	printf("total time on bmhs = %f\n", total);
-	printf("total time on bmhs / num = %f\n", total/num_threads);
-
 	closefiles();
 	free_all();
 
-	end = clock();
-	printf("Total internal time = %f\n", (double)(end - begin_0) / CLOCKS_PER_SEC);
-	printf("Total internal time / num = %f\n", ((double)(end - begin_0) / CLOCKS_PER_SEC)/num_threads);
+	clock_t end = clock();
+	printf("Total internal time = %f\n", (double)(end - begin) / CLOCKS_PER_SEC);
 
 	return EXIT_SUCCESS;
 }
