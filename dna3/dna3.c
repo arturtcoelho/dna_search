@@ -3,33 +3,42 @@
 #include <string.h>
 #include <time.h>
 
+// Mapping and system header functions
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/mman.h> 
 
+// Error traceback
 #include <errno.h>
-#include <stdarg.h>
 
+// openMP lib
 #include <omp.h>
 
 // MAX char table (ASCII)
 #define MAX 256
+
+// File line max size
 #define QUERY_LINE_SIZE 1000
 #define DESC_LINE_SIZE 200
 
+// Max file structure size
 #define MAX_QUERY 200000
 #define MAX_DNA 100000
 #define QUERY_SIZE 100000
 #define DNA_SIZE 100000
 #define MAX_SECTORS 100
 
+// based on the total found strings to be writen
 #define OUT_MAP_MULTIPLIER 2.1
 
 // File maps and lengths
 // these files are maped using mmap, and can be accessed as strings
 // The lengths are obtained with the file descriptor
+#define OUTPUT_FILE_NAME "dna.out"
+#define DNA_FILE_NAME "dna.in"
+#define QUERY_FILE_NAME "query.in"
 char *dna, *query, *fout;
 long dna_s, query_s, fout_s;
 
@@ -39,72 +48,95 @@ long dna_s, query_s, fout_s;
 char **query_map, **dna_map, **dna_remap;
 long query_map_s, dna_map_s, num_sectors;
 
-// 
+// this array of strings is where each thread write 
+// the correspondent line to be put on the final file
 char **output_map;
 long out_map_s;
 
-void alloc_string_map();
-void check (int test, const char * message, ...);
-void openfiles();
+// Open and map read files
 void map_files();
+
+// Aux error checking function 
+void check(int, char *);
+
+// Allocate memory to read data
+void alloc_string_map();
+
+// Map file data to program data
 void map_strings();
+
+// Aux remove end of line char
+void remove_eol(char *, int);
+
+// The main seach algorithm
+int bmhs(char *, int, char *, int);
+
+// Open and map the output file
 void map_output();
-int bmhs(char *string, int n, char *substr, int m);
-void closefiles();
-void remove_eol(char *line, int len);
+
+// Free memory and close files
 void free_all();
 
+
+// Entry point
 int main()
 {
-	// clock_t begin_0 = clock();
+	clock_t begin = clock();
 
+    // Open files and allocate memory
     map_files();
     alloc_string_map();
     map_strings();
 
-	// clock_t end = clock();
-	// printf("time reading and allocating memory = %f\n", (double)(end - begin) / CLOCKS_PER_SEC);
-
-	int num_threads;
-    fout_s = 0;
+	int num_threads = 0;
+    fout_s = 0; // output file size
     
 	#pragma omp parallel
 	{
 		int id = omp_get_thread_num();
 		if (!id) num_threads = omp_get_num_threads();
 
-		// to know number of threads
+		// so that all threads know the number of threads
 		#pragma omp barrier
 
+        // set initial and final seach location for each thread
 		long chunk = query_map_s / num_threads;
 		long init_for = id*chunk;
 		long end_for = (id+1)*chunk;
+
+        // to know where to write independently
 		long line_number = init_for*OUT_MAP_MULTIPLIER;
         long total_writen = 0;
 
-		// for each query in block
-		for (long i = init_for; i < end_for; i++) {
-            total_writen += sprintf(output_map[line_number++], ">Query string #%ld\n", i);
+		for (long i = init_for; i < end_for; i++) { // for each query in block
+            total_writen += sprintf(output_map[line_number++], 
+                                    ">Query string #%ld\n", i);
 			int found = 0;
 
-			// for each database sector
-			for (long j = 0; j < num_sectors; j++){
+			for (long j = 0; j < num_sectors; j++){ // for each database sector
 				
-				// actualy search
-				int result = bmhs(dna_remap[j], strlen(dna_remap[j]), query_map[i], strlen(query_map[i]));
+				// actualy search with bmhs
+				int result = bmhs(dna_remap[j], strlen(dna_remap[j]), 
+                                    query_map[i], strlen(query_map[i]));
 
 				// if found store the value on output array
 				if (result > 0) {
-                    total_writen += sprintf(output_map[line_number], "> Escherichia coli K-12 MG1655 section %ld of 400 of the complete genome\n%d\n", j+1, result);
+                    total_writen += sprintf(output_map[line_number], 
+                                            "> Escherichia coli K-12 MG1655 section %ld of 400 of the complete genome\n%d\n"
+                                            , j+1, result);
                     line_number+=2;
 					found++;
 				}
 			}
+            
             if (!found) {
-                total_writen += sprintf(output_map[line_number++], "NOT FOUND\n");
+                total_writen += sprintf(output_map[line_number++], 
+                                        "NOT FOUND\n");
             }
 		}
 
+        // Even tho the chance of two threads get here at the same time are low
+        // due to their size it's bet to assure they do not write at the same time
         #pragma omp critical
         {
             fout_s += total_writen;
@@ -112,20 +144,20 @@ int main()
 
 	}
 
+    // Create and mat output file, now with know size
 	map_output();
 
+    // white to file
 	for (long i = 0, len = 0; i < out_map_s-1; i++){
         if (output_map[i][0]) {
             len += sprintf(fout+len, "%s", output_map[i]);
-            // printf("%s", output_map[i]);
         }
 	}
 
 	free_all();
 
-	// clock_t end = clock();
-	// printf("Total internal time = %f\n", (double)(end - begin_0) / CLOCKS_PER_SEC);
-	// printf("Total time = %f\n", ((double)(end - begin_0) / CLOCKS_PER_SEC)/num_threads);
+	clock_t end = clock();
+	printf("%f\n", (double)(end - begin) / CLOCKS_PER_SEC);
 
 	return EXIT_SUCCESS;
 }
@@ -156,6 +188,7 @@ void map_strings()
     int sectors[MAX_SECTORS];
     num_sectors = 0;
 
+    // for each dna line, copy it
 	for (long i = 0; i < dna_s; i++){
 		if (dna[i] == '\n') {
             if (*(dna+last_pos) == '>' || *(dna+last_pos+1) == '>') {
@@ -180,7 +213,8 @@ void map_strings()
 		if (!dna_remap[i]) exit(EXIT_FAILURE);
     }
     sectors[num_sectors] = dna_map_s;
-    
+
+    // join dna lines    
     for (int i = 0; i < num_sectors; i++){
         int k = 0;
         for (int j = sectors[i]; j < sectors[i+1]; j++) {
@@ -193,6 +227,7 @@ void map_strings()
     map_index = 0;
 	last_pos = 0;
 
+    // copy query lines
     for (long i = 0; i < query_s; i++){
 		if (query[i] == '\n') {
             if (*(query+last_pos) == '>' || *(query+last_pos+1) == '>') {
@@ -210,6 +245,7 @@ void map_strings()
     query_map_s = map_index;
 	out_map_s = (query_map_s)*OUT_MAP_MULTIPLIER; // heuristic of how many found objects
 
+    // get a output map, knowing the input size
 	output_map = malloc(out_map_s * sizeof(char*));
 	if (!output_map) exit(EXIT_FAILURE);
 	for (long i = 0; i < out_map_s-1; i++) {
@@ -224,106 +260,64 @@ void map_output()
 {
     int fd;
     int result;
-    char *filename = "dna.out";  /* mmapped array of int's */
 
-    /* Open a file for writing.
-     *  - Creating the file if it doesn't exist.
-     *  - Truncating it to 0 size if it already exists. (not really needed)
-     *
-     * Note: "O_WRONLY" mode is not sufficient when mmaping.
-     */
-    fd = open(filename, O_RDWR | O_CREAT | O_TRUNC, (mode_t)0600);
-    if (fd == -1) {
-        perror("Error opening file for writing");
-        exit(EXIT_FAILURE);
-    }
+    // Open file descriptor
+    fd = open(OUTPUT_FILE_NAME, O_RDWR | O_CREAT | O_TRUNC, (mode_t)0600);
+    check(fd == -1, "Error opening file for writing");
 
-    /* Stretch the file size to the size of the (mmapped) array of ints
-     */
+    // Go to end of file with set distance
     result = lseek(fd, fout_s-1, SEEK_SET);
-    if (result == -1) {
-        close(fd);
-        perror("Error calling lseek() to 'stretch' the file");
-        exit(EXIT_FAILURE);
-    }
+    check(result == -1, "Error calling lseek() to 'stretch' the file");
     
-    /* Something needs to be written at the end of the file to
-     * have the file actually have the new size.
-     * Just writing an empty string at the current file position will do.
-     *
-     * Note:
-     *  - The current position in the file is at the end of the stretched 
-     *    file due to the call to lseek().
-     *  - An empty string is actually a single '\0' character, so a zero-byte
-     *    will be written at the last byte of the file.
-     */
-    result = write(fd, "", 1);
-        if (result != 1) {
-        close(fd);
-        perror("Error writing last byte of the file");
-        exit(EXIT_FAILURE);
-    }
+    // write byte to end of file to make sure we have space
+    result = write(fd, "", 1);  
+    check(result != 1, "Error writing last byte of the file");
 
-    /* Now the file is ready to be mmapped.
-     */
+    // map entire virtual space to string
     fout = mmap(0, fout_s, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (fout == MAP_FAILED) {
-        close(fd);
-        perror("Error mmapping the file");
-        exit(EXIT_FAILURE);
-    }
+    check(fout == MAP_FAILED, "Error mmapping the file");
 }
 
-void check (int test, const char * message, ...)
+void check(int test, char * message)
 {
     if (test) {
-        va_list args;
-        va_start (args, message);
-        vfprintf (stderr, message, args);
-        va_end (args);
-        fprintf (stderr, "\n");
+        fprintf (stderr, "%s\n", message);
         exit (EXIT_FAILURE);
     }
 }
 
 void map_files()
 {
-    // File descriptor.
     int fd;
-    // Information about the file opened
     struct stat s;
     int status;
 
-    char * file_name = "dna.in";
+    // Dna file
+    // Open file descriptor
+    fd = open (DNA_FILE_NAME, O_RDONLY);
+    check(fd < 0, "open dna failed");
 
-    /* Open the file for reading. */
-    fd = open (file_name, O_RDONLY);
-    check (fd < 0, "open %s failed: %s", file_name, strerror (errno));
-
-    /* Get the size of the file. */
-    status = fstat (fd, & s);
-    check (status < 0, "stat %s failed: %s", file_name, strerror (errno));
+    // Get system header
+    status = fstat (fd, &s);
+    check(status < 0, "stat dna failed");
     dna_s = s.st_size;
 
-    /* Memory-map the file. */
+    // Map virtual memory to string
     dna = mmap (0, dna_s, PROT_READ, MAP_PRIVATE, fd, 0);
-    check (dna == MAP_FAILED, "mmap %s failed: %s", file_name, strerror (errno));
+    check(dna == MAP_FAILED, "mmap dna failed");
 
 	close (fd);
 
-    file_name = "query.in";
+    // Query file
+    fd = open (QUERY_FILE_NAME, O_RDONLY);
+    check(fd < 0, "open query failed");
 
-    fd = open (file_name, O_RDONLY);
-    check (fd < 0, "open %s failed: %s", file_name, strerror (errno));
-
-    /* Get the size of the file. */
     status = fstat (fd, & s);
-    check (status < 0, "stat %s failed: %s", file_name, strerror (errno));
+    check(status < 0, "stat query failed");
     query_s = s.st_size;
 
-    /* Memory-map the file. */
     query = mmap (0, query_s, PROT_READ, MAP_PRIVATE, fd, 0);
-    check (query == MAP_FAILED, "mmap %s failed: %s", file_name, strerror (errno));
+    check(query == MAP_FAILED, "mmap query failed");
 
 	close (fd);
 }
