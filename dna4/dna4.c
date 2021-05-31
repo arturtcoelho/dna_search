@@ -97,7 +97,12 @@ int main()
     if (!line_number) exit(EXIT_FAILURE);
     
     long total_writen = 0;
+
+	printf("alloc: %f\n", (double)(clock() - begin) / CLOCKS_PER_SEC);
+    clock_t beg1 = clock();
     
+    double tot_bhms = 0;
+
     #pragma omp parallel reduction (+:total_writen) 
     {
         int init = 0;
@@ -117,32 +122,34 @@ int main()
 
             for (long j = 0; j < num_sectors; j++){ // for each database sector
                 
+                clock_t beg1 = clock();
                 // actualy search with bmhs
                 int result = bmhs(dna_remap[j], strlen(dna_remap[j]), 
                                     query_map[i], strlen(query_map[i]));
+                #pragma omp atomic
+                tot_bhms += (double)(clock() - beg1) / CLOCKS_PER_SEC;
 
                 // if found store the value on output array
                 if (result > 0) {
-                    #pragma omp critical
-                    {
-                        total_writen += sprintf(output_map[line_number[id]], 
-                                                "> Escherichia coli K-12 MG1655 section %ld of 400 of the complete genome\n%d\n"
-                                                , j+1, result);
-                    }
+                    total_writen += sprintf(output_map[line_number[id]], 
+                                            "> Escherichia coli K-12 MG1655 section %ld of 400 of the complete genome\n%d\n"
+                                            , j+1, result);
                     line_number[id]+=2;
                     found++;
                 }
             }
             
             if (!found) {
-                #pragma omp critical
-                {
-                    total_writen += sprintf(output_map[line_number[id]++], 
-                                            "NOT FOUND\n");
-                }
+                total_writen += sprintf(output_map[line_number[id]++], 
+                                        "NOT FOUND\n");
             }
         }
     }
+
+    printf("total bhms: %f\n", tot_bhms);
+	printf("total loop: %f\n", (double)(clock() - beg1) / CLOCKS_PER_SEC);
+
+    clock_t beg2 = clock();
 
     fout_s = total_writen;
 
@@ -159,7 +166,8 @@ int main()
 	free_all();
 
 	clock_t end = clock();
-	printf("%f\n", (double)(end - begin) / CLOCKS_PER_SEC);
+	printf("close: %f\n", (double)(end - beg2) / CLOCKS_PER_SEC);
+	printf("total: %f\n", ((double)(end - begin) / CLOCKS_PER_SEC));
 
 	return 0;
 }
@@ -272,7 +280,7 @@ void map_output()
     check(result == -1, "Error calling lseek() to 'stretch' the file");
     
     // write byte to end of file to make sure we have space
-    result = write(fd, "", 1);  
+    result = write(fd, "", 1);
     check(result != 1, "Error writing last byte of the file");
 
     // map entire virtual space to string
