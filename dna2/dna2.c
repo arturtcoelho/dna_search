@@ -52,6 +52,11 @@ int main()
     map_strings();
 	openfiles();
 
+	printf("alloc: %f\n", (double)(clock() - begin) / CLOCKS_PER_SEC);
+
+	clock_t beg1 = clock();
+	double tot_bhms = 0;
+
 	for (long i = 0; i < query_map_s; i++) {
 		fprintf(fout, ">Query string #%ld\n", i);
 		
@@ -59,8 +64,10 @@ int main()
 		int found = 0;
 		for (long j = 0; j < num_sectors; j++){
 
+			clock_t beg5 = clock();
 			int result = bmhs(dna_remap[j], strlen(dna_remap[j]), query_map[i], strlen(query_map[i]));
-			
+			tot_bhms +=(double)(clock() - beg5) / CLOCKS_PER_SEC;
+
 			if (result > 0) {
 				fprintf(fout, "> Escherichia coli K-12 MG1655 section %ld of 400 of the complete genome\n%d\n", j+1, result);
 				found++;
@@ -70,6 +77,9 @@ int main()
 		if (!found)
 			fprintf(fout, "NOT FOUND\n");
 	}
+
+	printf("total bhms: %f\n", tot_bhms);
+	printf("total loop: %f\n", (double)(clock() - beg1) / CLOCKS_PER_SEC);
 
 	closefiles();
 	free_all();

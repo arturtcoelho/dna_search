@@ -81,7 +81,6 @@ void free_all();
 // Entry point
 int main()
 {
-	clock_t begin = clock();
 
     // Open files and allocate memory
     map_files();
@@ -97,11 +96,6 @@ int main()
     if (!line_number) exit(EXIT_FAILURE);
     
     long total_writen = 0;
-
-	printf("alloc: %f\n", (double)(clock() - begin) / CLOCKS_PER_SEC);
-    clock_t beg1 = clock();
-    
-    double tot_bhms = 0;
 
     #pragma omp parallel reduction (+:total_writen) 
     {
@@ -122,12 +116,9 @@ int main()
 
             for (long j = 0; j < num_sectors; j++){ // for each database sector
                 
-                clock_t beg1 = clock();
                 // actualy search with bmhs
                 int result = bmhs(dna_remap[j], strlen(dna_remap[j]), 
                                     query_map[i], strlen(query_map[i]));
-                #pragma omp atomic
-                tot_bhms += (double)(clock() - beg1) / CLOCKS_PER_SEC;
 
                 // if found store the value on output array
                 if (result > 0) {
@@ -146,11 +137,6 @@ int main()
         }
     }
 
-    printf("total bhms: %f\n", tot_bhms);
-	printf("total loop: %f\n", (double)(clock() - beg1) / CLOCKS_PER_SEC);
-
-    clock_t beg2 = clock();
-
     fout_s = total_writen;
 
     // Create and mat output file, now with know size
@@ -164,10 +150,6 @@ int main()
 	}
 
 	free_all();
-
-	clock_t end = clock();
-	printf("close: %f\n", (double)(end - beg2) / CLOCKS_PER_SEC);
-	printf("total: %f\n", ((double)(end - begin) / CLOCKS_PER_SEC));
 
 	return 0;
 }
@@ -183,6 +165,7 @@ void alloc_string_map()
         dna_map[i] = malloc(DNA_SIZE);
 		if (!dna_map[i]) exit(EXIT_FAILURE);
     }
+
     for (int i = 0; i < MAX_QUERY; i++) {
         query_map[i] = malloc(QUERY_SIZE);
 		if (!query_map[i]) exit(EXIT_FAILURE);
@@ -218,10 +201,12 @@ void map_strings()
 
     dna_remap = malloc((num_sectors+1) * sizeof(char*));
 	if (!dna_remap) exit(EXIT_FAILURE);
+
     for (int i = 0; i < num_sectors; i++){
         dna_remap[i] = malloc(DNA_SIZE * sizeof(char));
 		if (!dna_remap[i]) exit(EXIT_FAILURE);
     }
+
     sectors[num_sectors] = dna_map_s;
 
     // join dna lines    
@@ -258,6 +243,7 @@ void map_strings()
     // get a output map, knowing the input size
 	output_map = malloc(out_map_s * sizeof(char*));
 	if (!output_map) exit(EXIT_FAILURE);
+
 	for (long i = 0; i < out_map_s-1; i++) {
 		output_map[i] = malloc(DESC_LINE_SIZE * sizeof(char));
 		if (!output_map[i]) exit(EXIT_FAILURE);
